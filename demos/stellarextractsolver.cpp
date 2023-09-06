@@ -33,9 +33,10 @@ void print_usage(char *pgmname)
   printf("-Idir         Add 'dir' to the list of locations holding Astrometry star\n");
   printf("                catalog index files. Any defined environment variable\n");
   printf("                ASTROMETRY_INDEX_FILES path will also be added.\n"); 
-  printf("-o FILE       Use FILE for the output. Default is write to stdout\n");
-  printf("--overwrite   Overwrite output files if they already exist\n");
-  printf("--skip-solved Skip  input files for which the 'solved' output file already exists\n");
+  printf("-o FILE       Use FILE for the output (TOML format). You may use 'stdout'.\n");
+  printf("                Default is write a TOML file per image.\n");
+  printf("--overwrite   Overwrite output files if they already exist.\n");
+  printf("--skip-solved Skip  input files for which the 'solved' output file already exists.\n");
   printf("--help -h     Display this help and version.\n");
   printf("--verbose     Display detailed processing steps.\n");
   printf("--silent      Quiet mode.\n");
@@ -118,7 +119,7 @@ int main(int argc, char *argv[])
       int   count;
       
       strncpy(currentImageName, currentImage.toStdString().c_str(), BUFFER_SIZE);
-      count = snprintf(outputFilenameImage, BUFFER_SIZE, "%s.yaml", currentImageName);
+      count = snprintf(outputFilenameImage, BUFFER_SIZE, "%s.toml", currentImageName);
       if (flagVerbosity >= 1)
         printf("INFO: Loading image     %s\n", currentImageName);
       if (flagSkipSolved && count && QFileInfo::exists(QString(outputFilenameImage)) && flagVerbosity >= 2) {
@@ -148,36 +149,47 @@ int main(int argc, char *argv[])
 
       FITSImage::Solution solution = stellarSolver.getSolution();
       
-      FILE* outputFilehandle = NULL;
+      FILE* f = NULL; // the output file
       
       if (!outputFilename) {
-        // default: write a YAML file per image based on its name
+        // default: write a TOML file per image based on its name
         if (count)
-          outputFilehandle = fopen(outputFilenameImage, flagOverwrite ? "w" : "a");
-        if (outputFilehandle)
+          f = fopen(outputFilenameImage, flagOverwrite ? "w" : "a");
+        if (f) {
           flagFileOpen=1;
+          if (flagVerbosity >= 2)
+            printf("INFO: Writing           %s\n",     outputFilenameImage);
+        }
       } else if (strlen(outputFilename)) {
         // output file name given
         if (!strcmp(outputFilename, "stdout"))
-          outputFilehandle = stdout;
+          f = stdout;
         else if (!strcmp(outputFilename, "stderr"))
-          outputFilehandle = stderr;
+          f = stderr;
         else {
-          outputFilehandle = fopen(outputFilename, flagOverwrite ? "w" : "a");
-          if (outputFilehandle) flagFileOpen=1;
+          f = fopen(outputFilename, flagOverwrite && !imageFilesCounter ? "w" : "a");
+          if (f) {
+            flagFileOpen=1;
+            if (flagVerbosity >= 2 && !imageFilesCounter)
+              printf("INFO: Writing           %s\n",     outputFilename);
+          }
         }
       }
-      if (!outputFilehandle) // when all failed, output to stdout
-        outputFilehandle = stdout;
+      if (!f) // when all failed, output to stdout
+        f = stdout;
       
-      fprintf(outputFilehandle, "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-
-      fprintf(outputFilehandle, "Field center: (RA,Dec) = (%f, %f) deg.\n", solution.ra, solution.dec);
-      fprintf(outputFilehandle, "Field size: %f x %f arcminutes\n", solution.fieldWidth, solution.fieldHeight);
-      fprintf(outputFilehandle, "Pixel Scale: %f\"\n", solution.pixscale);
-      fprintf(outputFilehandle, "Field rotation angle: up is %f degrees E of N\n", solution.orientation);
-      fprintf(outputFilehandle, "Field parity: %s\n", FITSImage::getParityText(solution.parity).toUtf8().data());
-      fflush( outputFilehandle );
+      // OUPUT FILE ------------------------------------------------------------
+      time_t t;   // not a primitive datatype
+      time(&t);
+      fprintf(f, "# TOML entry for image %s\n", currentImageName);
+      fprintf(f, "[solve-%s]\n", currentImageName);
+      fprintf(f, "date_processed        = %s\n", ctime(&t));
+      fprintf(f, "field_center          = [ %f, %f ] # deg (RA,DEC)\n", solution.ra, solution.dec);
+      fprintf(f, "field_size            = [ %f, %f] # arcminutes\n", solution.fieldWidth, solution.fieldHeight);
+      fprintf(f, "field_rotation_angle  = %f # up degrees E of N\n", solution.orientation);
+      fprintf(f, "field_parity          = '%s'\n", FITSImage::getParityText(solution.parity).toUtf8().data());
+      fprintf(f, "pixel_scale           = %f\n", solution.pixscale);
+      fflush( f );
       imageFilesCounter++;
 
       stellarSolver.setParameterProfile(SSolver::Parameters::ALL_STARS);
@@ -189,19 +201,20 @@ int main(int argc, char *argv[])
       }
 
       QList<FITSImage::Star> starList = stellarSolver.getStarList();
-      fprintf(outputFilehandle, "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-      
-      fprintf(outputFilehandle, "Stars found: %u\n", starList.count());
+      fprintf(f, "stars_found           = %u\n", starList.count());
+      fprintf(f, "\n");
       if (flagVerbosity >= 2)
         printf("INFO: Stars found in    %s: %u\n", currentImageName, starList.count());
+        
+      fprintf(f, "[stars-%s]\n", currentImageName);
       for(int i=0; i < starList.count(); i++)
       {
           FITSImage::Star star = starList.at(i);
           char *ra = StellarSolver::raString(star.ra).toUtf8().data();
           char *dec = StellarSolver::decString(star.dec).toUtf8().data();
-          fprintf(outputFilehandle, "Star #%u: (%f x, %f y), (ra: %s,dec: %s), mag: %f, peak: %f, hfr: %f \n", i, star.x, star.y, ra , dec, star.mag, star.peak, star.HFR);
+          fprintf(f, "Star #%u: (%f x, %f y), (ra: %s,dec: %s), mag: %f, peak: %f, hfr: %f \n", i, star.x, star.y, ra , dec, star.mag, star.peak, star.HFR);
       }
-      if (flagFileOpen) fclose(outputFilehandle);
+      if (flagFileOpen) fclose(f);
       
     } // loop on images
     if (flagVerbosity >= 1) {
