@@ -6,9 +6,9 @@ cmake_minimum_required(VERSION 3.0)
 # Timestamp build
 string(TIMESTAMP StellarSolver_BUILD_TS UTC)
 
-# StellarSolver Version 2.4
+# StellarSolver Version 2.5
 set (StellarSolver_VERSION_MAJOR 2)
-set (StellarSolver_VERSION_MINOR 4)
+set (StellarSolver_VERSION_MINOR 5)
 
 set (StellarSolver_SOVERSION "${StellarSolver_VERSION_MAJOR}")
 set (StellarSolver_VERSION ${StellarSolver_VERSION_MAJOR}.${StellarSolver_VERSION_MINOR})
@@ -27,7 +27,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET 10.13)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 10.15)
 endif(APPLE)
 
 LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/")
